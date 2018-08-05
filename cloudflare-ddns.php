@@ -3,6 +3,7 @@ define('CLOUDFLARE_API_KEY', 'Your cloudflare api key');
 define('CLOUDFLARE_EMAIL', 'Your cloudflare email');
 define('DOMAIN', 'example.com');
 define('CLOUDFLARE_RECORD', 'AArecord.example.com');
+define('CLOUDFLARE_RECORD_PROXIED', true);
 define('CHECK_SECONDS', 120);
 
 
@@ -47,7 +48,7 @@ if (isset($result['result'][0]['id'])) {
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, 'https://api.cloudflare.com/client/v4/zones/'.CLOUDFLARE_ID.'/dns_records/'.CLOUDFLARE_RECORD_ID);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(array('type' => 'A', 'name' => CLOUDFLARE_RECORD, 'content' => $ip)));
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(array('type' => 'A', 'name' => CLOUDFLARE_RECORD, 'content' => $ip, 'proxied' => CLOUDFLARE_RECORD_PROXIED)));
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
         $headers = array();
         $headers[] = 'X-Auth-Email: '.CLOUDFLARE_EMAIL;
