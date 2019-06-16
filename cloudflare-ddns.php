@@ -1,72 +1,117 @@
 <?php
-define('CLOUDFLARE_API_KEY', 'Your cloudflare api key');
-define('CLOUDFLARE_EMAIL', 'Your cloudflare email');
-define('DOMAIN', 'example.com');
-define('CLOUDFLARE_RECORD', 'AArecord.example.com');
-define('CLOUDFLARE_RECORD_PROXIED', true);
-define('CHECK_SECONDS', 120);
+// Basic settings
+define("CLOUDFLARE_EMAIL", "YOUR EMAIL HERE"); // Your CF Email
+define("CLOUDFLARE_KEY", "YOUR KEY HERE"); // Your CF Key from My Profile > API Keys > Global API Key
+define("CLOUDFLARE_ZONE_INDEX", 0); // Zone index starting from 0
+define('CLOUDFLARE_ZONE_NAME', 'DOMAIN HERE'); // Zone name(for security reason)
+define('CLOUDFLARE_RECORD_NAME', 'RECORD NAME HERE'); // Record name
+// Advanced settings
+define('CLOUDFLARE_RECORD_TYPE', 'A'); // It can be "A"(IPv4) or "AAAA"(IPv6)
+define('CLOUDFLARE_RECORD_PROXIED', false); // Enable/Disable cloudflare protection
+define('CLOUDFLARE_RECORD_TTL', 1); // Record TTL 1 = Automatic
+define('IPCHECK_WAIT_SECONDS', 60); // IP check timeout 0 = Automatic(ALPHA)
+define('IPUPD_FAILED_RETRY_AFTER_SECONDS', 10); // Record update failed timeout retry
+define('IPCHECK_URL', 'https://ifconfig.me'); // Public IP check URL
 
+/* DO NOT CHANGE ANYTHING FROM NOW ON */
 
+if(!(CLOUDFLARE_RECORD_TYPE == "A" or CLOUDFLARE_RECORD_TYPE == "AAAA")) {
+    die("Please set the record type on A or AAAA.".PHP_EOL);
+} elseif(CLOUDFLARE_RECORD_TYPE == "A") {
+    $valIp = FILTER_FLAG_IPV4;
+} elseif(CLOUDFLARE_RECORD_TYPE == "AAAA") {
+    $valIp = FILTER_FLAG_IPV6;
+}
 
+$curl = curl_init();
+curl_setopt_array($curl, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_HTTPHEADER => [
+        "X-Auth-Email: ".CLOUDFLARE_EMAIL,
+        "X-Auth-Key: ".CLOUDFLARE_KEY,
+        "Content-Type: application/json"
+    ],
+    CURLOPT_CUSTOMREQUEST => "GET",
+    CURLOPT_URL => "https://api.cloudflare.com/client/v4/zones"
+]);
+$r = json_decode(curl_exec($curl), true);
+$timeout = IPCHECK_WAIT_SECONDS;
+$timeoutAI = false;
 
-
-
-
-
-echo 'Cloudflare API Key: '.CLOUDFLARE_API_KEY.PHP_EOL.'Cloudflare email: '.CLOUDFLARE_EMAIL.PHP_EOL.'Domain: '.DOMAIN.PHP_EOL.'Record: '.CLOUDFLARE_RECORD.PHP_EOL.'Check every '.CHECK_SECONDS.' seconds.'.PHP_EOL.'Status: ';
-$ch = curl_init();
-curl_setopt($ch, CURLOPT_URL, 'https://api.cloudflare.com/client/v4/zones?name='.urlencode(DOMAIN));
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET');
-$headers = array();
-$headers[] = 'X-Auth-Email: '.CLOUDFLARE_EMAIL;
-$headers[] = 'X-Auth-Key: '.CLOUDFLARE_API_KEY;
-$headers[] = 'Content-Type: application/json';
-curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-$result = json_decode(curl_exec($ch), true);
-curl_close($ch);
-if (isset($result['result'][0]['id'])) {
-  define('CLOUDFLARE_ID', $result['result'][0]['id']);
-  $ch = curl_init();
-  curl_setopt($ch, CURLOPT_URL, 'https://api.cloudflare.com/client/v4/zones/'.CLOUDFLARE_ID.'/dns_records?type=A&name='.urlencode(CLOUDFLARE_RECORD));
-  curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-  curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET');
-  $headers = array();
-  $headers[] = 'X-Auth-Email: '.CLOUDFLARE_EMAIL;
-  $headers[] = 'X-Auth-Key: '.CLOUDFLARE_API_KEY;
-  $headers[] = 'Content-Type: application/json';
-  curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-  $result = json_decode(curl_exec($ch), true);
-  curl_close($ch);
-  if (isset($result['result'][0]['id'])) {
-    define('CLOUDFLARE_RECORD_ID', $result['result'][0]['id']);
-    $oldIp = $result['result'][0]['content'];
-    echo 'Running'.PHP_EOL;
-    while (true) {
-      $ip = file_get_contents('https://ipv4.myip.info/');
-      if (filter_var($ip, FILTER_VALIDATE_IP) and $ip !== $oldIp) {
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, 'https://api.cloudflare.com/client/v4/zones/'.CLOUDFLARE_ID.'/dns_records/'.CLOUDFLARE_RECORD_ID);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(array('type' => 'A', 'name' => CLOUDFLARE_RECORD, 'content' => $ip, 'proxied' => CLOUDFLARE_RECORD_PROXIED)));
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
-        $headers = array();
-        $headers[] = 'X-Auth-Email: '.CLOUDFLARE_EMAIL;
-        $headers[] = 'X-Auth-Key: '.CLOUDFLARE_API_KEY;
-        $headers[] = 'Content-Type: application/json';
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        $result = json_decode(curl_exec($ch), true);
-        curl_close($ch);
-        if ($result['success']) {
-          echo "\nRecord updated.\nOld IP: $oldIp\nNew IP: $ip\n";
-          $oldIp = $ip;
+if($r["success"] && isset($r["result"][CLOUDFLARE_ZONE_INDEX]) &&
+    $r["result"][CLOUDFLARE_ZONE_INDEX] &&
+    $r["result"][CLOUDFLARE_ZONE_INDEX]["name"] == CLOUDFLARE_ZONE_NAME) {
+    $zone = $r["result"][CLOUDFLARE_ZONE_INDEX];
+    $zone_id = $zone["id"];
+    curl_setopt_array($curl, [
+        CURLOPT_URL => "https://api.cloudflare.com/client/v4/zones/".$zone_id."/dns_records?".http_build_query([
+            "type" => CLOUDFLARE_RECORD_TYPE,
+            "name" => CLOUDFLARE_RECORD_NAME
+        ])
+    ]);
+    $r = json_decode(curl_exec($curl), true);
+    if($r["success"] && $r["result"][0]) {
+        $record = $r["result"][0];
+        $record_id = $record["id"];
+        $oldIp = $record["content"];
+        curl_setopt_array($curl, [
+            CURLOPT_URL => "https://api.cloudflare.com/client/v4/zones/".$zone_id."/dns_records/".$record_id,
+            CURLOPT_CUSTOMREQUEST => "PUT",
+        ]);
+        while(true) {
+            $ip = file_get_contents(IPCHECK_URL);
+            if(filter_var($ip, FILTER_VALIDATE_IP, $valIp)) {
+                $time_seconds = $timeout;
+                $hours = floor($time_seconds / 3600);
+                $time_seconds -= (3600 * $hours);
+                $minutes = floor($time_seconds / 60);
+                $time_seconds -= (60 * $minutes);
+                $timeoutString = ($hours ? $hours." hours" : "").($minutes ? ($hours ? ", " : "").$minutes." minutes" : "").($time_seconds ? ($minutes ? ", " : "").$time_seconds." seconds" : "");
+                if($oldIp != $ip) {
+                    if($timeoutAI) {
+                        if($timeout !== (++$timeoutCount * $timeout)) {
+                            $timeout = (++$timeoutCount * $timeout);
+                            $time_seconds = $timeout;
+                            $hours = floor($time_seconds / 3600);
+                            $time_seconds -= (3600 * $hours);
+                            $minutes = floor($time_seconds / 60);
+                            $time_seconds -= (60 * $minutes);
+                            $timeoutString = ($hours ? $hours." hours" : "").($minutes ? ($hours ? ", " : "").$minutes." minutes" : "").($time_seconds ? ($minutes ? ", " : "").$time_seconds." seconds" : "");
+                            echo "New timeout value: ".$timeoutString." seconds".PHP_EOL;
+                        }
+                    }
+                    $timeoutCount = 0;
+                    echo "IP changed! Updating record...".PHP_EOL;
+                    curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode([
+                        "type" => CLOUDFLARE_RECORD_TYPE,
+                        "name" => CLOUDFLARE_RECORD_NAME,
+                        "content" => $ip,
+                        "ttl" => CLOUDFLARE_RECORD_TTL,
+                        "proxied" => CLOUDFLARE_RECORD_PROXIED,
+                    ]));
+                    $r = json_decode(curl_exec($curl), true);
+                    if(!$r["success"]) {
+                        echo "Record update failed! Trying again in ".IPUPD_FAILED_RETRY_AFTER_SECONDS." seconds...".PHP_EOL;
+                        sleep(IPUPD_FAILED_RETRY_AFTER_SECONDS);
+                    } else {
+                        echo "Record successfully updated!".PHP_EOL."Next IP check in ".$timeoutString."...".PHP_EOL;
+                        sleep($timeout);
+                    }
+                } else {
+                    echo "IP didn't change. Next check in ".$timeoutString."...".PHP_EOL;
+                    if($timeoutAI) $timeoutCount++;
+                    sleep($timeout);
+                }
+            } else {
+                die("IP returned from URL ".IPCHECK_URL." is not valid.".PHP_EOL);
+            }
         }
-      }
-      sleep(CHECK_SECONDS);
+    } else {
+        foreach($r["errors"] as $error) {
+            echo $error["code"].": ".$error["message"].PHP_EOL;
+        }
+        die("Failed while trying to get the record ID.".PHP_EOL);
     }
-  } else {
-    die('Record not found.'.PHP_EOL);
-  }
 } else {
-  die('Error.'.PHP_EOL);
+    die("Zone not found or zone index doesn't correspond to the zone name.".PHP_EOL);
 }
